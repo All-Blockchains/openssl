@@ -12,6 +12,7 @@
 #include <openssl/param_build.h>
 #include <openssl/self_test.h>
 #include "crypto/slh_dsa.h"
+#include "internal/fips.h"
 #include "internal/param_build_set.h"
 #include "prov/implementations.h"
 #include "prov/providercommon.h"
@@ -40,7 +41,7 @@ struct slh_dsa_gen_ctx {
     SLH_DSA_HASH_CTX *ctx;
     OSSL_LIB_CTX *libctx;
     char *propq;
-    uint8_t entropy[32 * 3];
+    uint8_t entropy[SLH_DSA_MAX_N * 3];
     size_t entropy_len;
 };
 
@@ -184,13 +185,10 @@ static int slh_dsa_get_params(void *keydata, OSSL_PARAM params[])
     priv = ossl_slh_dsa_key_get_priv(key);
     if (priv != NULL) {
         p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_PRIV_KEY);
-        /*
-         * ossl_slh_dsa_key_get_priv_len() includes the public key also
-         * so dividing by 2 returns only the private component.
-         */
+        /* Note: ossl_slh_dsa_key_get_priv_len() includes the public key */
         if (p != NULL
             && !OSSL_PARAM_set_octet_string(p, priv,
-                                            ossl_slh_dsa_key_get_priv_len(key) / 2))
+                                            ossl_slh_dsa_key_get_priv_len(key)))
             return 0;
     }
     pub = ossl_slh_dsa_key_get_pub(key);
@@ -295,6 +293,10 @@ static int slh_dsa_fips140_pairwise_test(SLH_DSA_HASH_CTX *ctx,
     uint8_t *sig = NULL;
     size_t sig_len;
 
+    /* During self test, it is a waste to do this test */
+    if (ossl_fips_self_testing())
+        return 1;
+
     OSSL_SELF_TEST_get_callback(lib_ctx, &cb, &cb_arg);
     st = OSSL_SELF_TEST_new(cb, cb_arg);
     if (st == NULL)
@@ -363,7 +365,7 @@ static int slh_dsa_gen_set_params(void *genctx, const OSSL_PARAM params[])
     if (gctx == NULL)
         return 0;
 
-    p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_SLH_DSA_ENTROPY);
+    p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_SLH_DSA_SEED);
     if (p != NULL) {
         void *vp = gctx->entropy;
         size_t len = sizeof(gctx->entropy);
@@ -391,7 +393,7 @@ static const OSSL_PARAM *slh_dsa_gen_settable_params(ossl_unused void *genctx,
 {
     static OSSL_PARAM settable[] = {
         OSSL_PARAM_utf8_string(OSSL_PKEY_PARAM_PROPERTIES, NULL, 0),
-        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_SLH_DSA_ENTROPY, NULL, 0),
+        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_SLH_DSA_SEED, NULL, 0),
         OSSL_PARAM_END
     };
     return settable;
